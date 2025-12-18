@@ -6,6 +6,9 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
+import { useToast } from '@/hooks/use-toast';
 
 interface Message {
   id: number;
@@ -28,6 +31,8 @@ interface Chat {
   time: string;
   unread?: number;
   isGroup?: boolean;
+  members?: string[];
+  importedFrom?: 'whatsapp';
 }
 
 const Index = () => {
@@ -39,8 +44,11 @@ const Index = () => {
   const [recordingTime, setRecordingTime] = useState(0);
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null);
   const [editingText, setEditingText] = useState('');
+  const [whatsappData, setWhatsappData] = useState('');
+  const [showImportDialog, setShowImportDialog] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const { toast } = useToast();
 
   const [chats, setChats] = useState<Chat[]>([
     { id: 1, name: 'Анна Смирнова', avatar: '👩‍💼', lastMessage: 'Привет! Как дела?', time: '10:30', unread: 2 },
@@ -103,18 +111,66 @@ const Index = () => {
 
   const createGroup = () => {
     if (groupName.trim()) {
+      const members = groupMembers.split(',').map(m => m.trim()).filter(m => m);
       const newGroup: Chat = {
         id: chats.length + 1,
         name: groupName,
         avatar: '👥',
         lastMessage: 'Группа создана',
         time: 'Только что',
-        isGroup: true
+        isGroup: true,
+        members: members.length > 0 ? members : undefined
       };
       setChats([newGroup, ...chats]);
       setGroupName('');
       setGroupMembers('');
     }
+  };
+
+  const importWhatsAppGroup = () => {
+    if (!whatsappData.trim()) {
+      toast({
+        title: 'Ошибка',
+        description: 'Вставьте данные группы WhatsApp',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    const lines = whatsappData.split('\n').filter(line => line.trim());
+    const groupNameMatch = lines[0]?.match(/Группа[:\s]+(.+)/) || lines[0]?.match(/Group[:\s]+(.+)/);
+    const extractedGroupName = groupNameMatch ? groupNameMatch[1].trim() : 'Импортированная группа';
+    
+    const members: string[] = [];
+    lines.forEach(line => {
+      const memberMatch = line.match(/[+\d\s()\-]+[:\s]+(.+)/) || line.match(/^([А-Яа-яA-Za-z\s]+)$/);
+      if (memberMatch && memberMatch[1]) {
+        const memberName = memberMatch[1].trim();
+        if (memberName && !memberName.includes('Группа') && !memberName.includes('Group')) {
+          members.push(memberName);
+        }
+      }
+    });
+
+    const newGroup: Chat = {
+      id: chats.length + 1,
+      name: extractedGroupName,
+      avatar: '💬',
+      lastMessage: `Импортировано ${members.length} участников из WhatsApp`,
+      time: 'Только что',
+      isGroup: true,
+      members: members,
+      importedFrom: 'whatsapp'
+    };
+
+    setChats([newGroup, ...chats]);
+    setWhatsappData('');
+    setShowImportDialog(false);
+    
+    toast({
+      title: 'Успешно!',
+      description: `Группа "${extractedGroupName}" импортирована с ${members.length} участниками`
+    });
   };
 
   const startRecording = () => {
@@ -169,41 +225,92 @@ const Index = () => {
         <div className="p-4 border-b border-border bg-gradient-primary">
           <div className="flex items-center justify-between mb-4">
             <h1 className="text-2xl font-bold text-white">Чаты</h1>
-            <Dialog>
-              <DialogTrigger asChild>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
                 <Button size="icon" variant="ghost" className="text-white hover:bg-white/20">
                   <Icon name="Plus" size={24} />
                 </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Создать групповой чат</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4 py-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="groupName">Название группы</Label>
-                    <Input 
-                      id="groupName" 
-                      placeholder="Введите название..." 
-                      value={groupName}
-                      onChange={(e) => setGroupName(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="members">Участники</Label>
-                    <Input 
-                      id="members" 
-                      placeholder="Добавить участников..." 
-                      value={groupMembers}
-                      onChange={(e) => setGroupMembers(e.target.value)}
-                    />
-                  </div>
-                  <Button className="w-full bg-gradient-primary" onClick={createGroup}>
-                    Создать группу
-                  </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                      <Icon name="Users" size={16} className="mr-2" />
+                      Создать группу
+                    </DropdownMenuItem>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Создать групповой чат</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="groupName">Название группы</Label>
+                        <Input 
+                          id="groupName" 
+                          placeholder="Введите название..." 
+                          value={groupName}
+                          onChange={(e) => setGroupName(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="members">Участники (через запятую)</Label>
+                        <Input 
+                          id="members" 
+                          placeholder="Иван, Мария, Петр..." 
+                          value={groupMembers}
+                          onChange={(e) => setGroupMembers(e.target.value)}
+                        />
+                      </div>
+                      <Button className="w-full bg-gradient-primary" onClick={createGroup}>
+                        Создать группу
+                      </Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+                <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+                  <DialogTrigger asChild>
+                    <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                      <Icon name="Download" size={16} className="mr-2" />
+                      Импортировать из WhatsApp
+                    </DropdownMenuItem>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                      <DialogTitle className="flex items-center gap-2">
+                        <Icon name="MessageCircle" size={24} className="text-green-600" />
+                        Импорт группы из WhatsApp
+                      </DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">
+                        <p className="text-sm font-medium text-blue-900">📱 Как экспортировать группу из WhatsApp:</p>
+                        <ol className="text-xs text-blue-800 space-y-1 ml-4 list-decimal">
+                          <li>Откройте групповой чат в WhatsApp</li>
+                          <li>Нажмите на название группы вверху</li>
+                          <li>Выберите "Экспортировать чат" → "Без медиа"</li>
+                          <li>Скопируйте текст и вставьте сюда</li>
+                        </ol>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="whatsappData">Данные группы WhatsApp</Label>
+                        <Textarea 
+                          id="whatsappData" 
+                          placeholder="Вставьте экспортированные данные группы WhatsApp...&#10;&#10;Например:&#10;Группа: Рабочая команда&#10;+7 900 123-45-67: Иван Петров&#10;+7 900 765-43-21: Мария Смирнова&#10;..." 
+                          value={whatsappData}
+                          onChange={(e) => setWhatsappData(e.target.value)}
+                          className="min-h-[200px] font-mono text-xs"
+                        />
+                      </div>
+                      <Button className="w-full bg-green-600 hover:bg-green-700" onClick={importWhatsAppGroup}>
+                        <Icon name="Download" size={18} className="mr-2" />
+                        Импортировать группу
+                      </Button>
+                    </div>
+                  </DialogContent>
+                </Dialog>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
           <div className="relative">
             <Icon name="Search" size={20} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/60" />
@@ -242,10 +349,20 @@ const Index = () => {
                     <h3 className="font-semibold text-foreground truncate">{chat.name}</h3>
                     <span className="text-xs text-muted-foreground">{chat.time}</span>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm text-muted-foreground truncate">{chat.lastMessage}</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-muted-foreground truncate">{chat.lastMessage}</p>
+                      {chat.importedFrom === 'whatsapp' && chat.members && (
+                        <div className="flex items-center gap-1 mt-1">
+                          <Badge variant="secondary" className="text-xs px-1.5 py-0">
+                            <Icon name="MessageCircle" size={10} className="mr-1" />
+                            {chat.members.length}
+                          </Badge>
+                        </div>
+                      )}
+                    </div>
                     {chat.unread && (
-                      <span className="ml-2 px-2 py-0.5 bg-gradient-accent text-white text-xs font-semibold rounded-full">
+                      <span className="px-2 py-0.5 bg-gradient-accent text-white text-xs font-semibold rounded-full shrink-0">
                         {chat.unread}
                       </span>
                     )}
@@ -268,12 +385,57 @@ const Index = () => {
                     {selectedChat.avatar}
                   </AvatarFallback>
                 </Avatar>
-                <div>
-                  <h2 className="font-semibold text-foreground">{selectedChat.name}</h2>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <h2 className="font-semibold text-foreground">{selectedChat.name}</h2>
+                    {selectedChat.importedFrom === 'whatsapp' && (
+                      <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                        <Icon name="MessageCircle" size={12} className="mr-1" />
+                        WhatsApp
+                      </Badge>
+                    )}
+                  </div>
                   <p className="text-xs text-muted-foreground">
-                    {selectedChat.isGroup ? 'Групповой чат' : 'В сети'}
+                    {selectedChat.isGroup ? (
+                      selectedChat.members ? `${selectedChat.members.length} участников` : 'Групповой чат'
+                    ) : 'В сети'}
                   </p>
                 </div>
+                {selectedChat.isGroup && selectedChat.members && selectedChat.members.length > 0 && (
+                  <Dialog>
+                    <DialogTrigger asChild>
+                      <Button size="icon" variant="ghost">
+                        <Icon name="Info" size={20} />
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                          <Icon name="Users" size={24} />
+                          Участники группы
+                        </DialogTitle>
+                      </DialogHeader>
+                      <div className="py-4">
+                        <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                          {selectedChat.members.map((member, index) => (
+                            <div key={index} className="flex items-center gap-3 p-3 rounded-lg hover:bg-purple-50 transition-colors">
+                              <Avatar className="h-10 w-10">
+                                <AvatarImage src="" />
+                                <AvatarFallback className="bg-gradient-primary text-white text-sm">
+                                  {member.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div className="flex-1">
+                                <p className="font-medium text-sm">{member}</p>
+                                <p className="text-xs text-muted-foreground">Участник</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                )}
               </div>
             </div>
 
