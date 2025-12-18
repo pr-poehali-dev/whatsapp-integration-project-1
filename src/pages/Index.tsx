@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import Icon from '@/components/ui/icon';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,10 +8,14 @@ import { Label } from '@/components/ui/label';
 
 interface Message {
   id: number;
-  text: string;
+  text?: string;
   sender: string;
   time: string;
   isMine: boolean;
+  type?: 'text' | 'voice' | 'file';
+  fileName?: string;
+  fileSize?: string;
+  duration?: string;
 }
 
 interface Chat {
@@ -29,6 +33,10 @@ const Index = () => {
   const [message, setMessage] = useState('');
   const [groupName, setGroupName] = useState('');
   const [groupMembers, setGroupMembers] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const [chats, setChats] = useState<Chat[]>([
     { id: 1, name: 'Анна Смирнова', avatar: '👩‍💼', lastMessage: 'Привет! Как дела?', time: '10:30', unread: 2 },
@@ -39,9 +47,11 @@ const Index = () => {
   ]);
 
   const [messages, setMessages] = useState<Message[]>([
-    { id: 1, text: 'Привет! Как дела?', sender: 'Анна', time: '10:25', isMine: false },
-    { id: 2, text: 'Отлично! А у тебя?', sender: 'Я', time: '10:27', isMine: true },
-    { id: 3, text: 'Тоже хорошо! Скоро встречаемся?', sender: 'Анна', time: '10:30', isMine: false },
+    { id: 1, text: 'Привет! Как дела?', sender: 'Анна', time: '10:25', isMine: false, type: 'text' },
+    { id: 2, text: 'Отлично! А у тебя?', sender: 'Я', time: '10:27', isMine: true, type: 'text' },
+    { id: 3, text: 'Тоже хорошо! Скоро встречаемся?', sender: 'Анна', time: '10:30', isMine: false, type: 'text' },
+    { id: 4, sender: 'Анна', time: '10:32', isMine: false, type: 'voice', duration: '0:15' },
+    { id: 5, sender: 'Я', time: '10:35', isMine: true, type: 'file', fileName: 'Презентация.pdf', fileSize: '2.4 MB' },
   ]);
 
   const sendMessage = () => {
@@ -71,6 +81,52 @@ const Index = () => {
       setChats([newGroup, ...chats]);
       setGroupName('');
       setGroupMembers('');
+    }
+  };
+
+  const startRecording = () => {
+    setIsRecording(true);
+    setRecordingTime(0);
+    recordingIntervalRef.current = setInterval(() => {
+      setRecordingTime(prev => prev + 1);
+    }, 1000);
+  };
+
+  const stopRecording = () => {
+    setIsRecording(false);
+    if (recordingIntervalRef.current) {
+      clearInterval(recordingIntervalRef.current);
+    }
+    if (selectedChat && recordingTime > 0) {
+      const newMessage: Message = {
+        id: messages.length + 1,
+        sender: 'Я',
+        time: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+        isMine: true,
+        type: 'voice',
+        duration: `0:${recordingTime.toString().padStart(2, '0')}`
+      };
+      setMessages([...messages, newMessage]);
+    }
+    setRecordingTime(0);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && selectedChat) {
+      const newMessage: Message = {
+        id: messages.length + 1,
+        sender: 'Я',
+        time: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+        isMine: true,
+        type: 'file',
+        fileName: file.name,
+        fileSize: (file.size / 1024 / 1024).toFixed(2) + ' MB'
+      };
+      setMessages([...messages, newMessage]);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
@@ -201,41 +257,128 @@ const Index = () => {
                         : 'bg-white border border-border'
                     }`}
                   >
-                    {!msg.isMine && (
+                    {!msg.isMine && msg.type === 'text' && (
                       <p className="text-xs font-semibold mb-1 text-primary">{msg.sender}</p>
                     )}
-                    <p className={msg.isMine ? 'text-white' : 'text-foreground'}>{msg.text}</p>
-                    <p className={`text-xs mt-1 ${msg.isMine ? 'text-white/70' : 'text-muted-foreground'}`}>
-                      {msg.time}
-                    </p>
+                    
+                    {msg.type === 'voice' ? (
+                      <div className="flex items-center gap-3">
+                        {!msg.isMine && (
+                          <p className="text-xs font-semibold text-primary mb-1 absolute -top-4 left-0">{msg.sender}</p>
+                        )}
+                        <Button 
+                          size="icon" 
+                          variant="ghost" 
+                          className={`h-8 w-8 ${msg.isMine ? 'text-white hover:bg-white/20' : 'hover:bg-purple-100'}`}
+                        >
+                          <Icon name="Play" size={16} />
+                        </Button>
+                        <div className="flex-1">
+                          <div className={`h-1 rounded-full ${msg.isMine ? 'bg-white/30' : 'bg-gray-200'}`}>
+                            <div className={`h-full w-1/3 rounded-full ${msg.isMine ? 'bg-white' : 'bg-primary'}`} />
+                          </div>
+                        </div>
+                        <span className={`text-xs ${msg.isMine ? 'text-white/70' : 'text-muted-foreground'}`}>
+                          {msg.duration}
+                        </span>
+                      </div>
+                    ) : msg.type === 'file' ? (
+                      <div className="flex items-center gap-3">
+                        {!msg.isMine && (
+                          <p className="text-xs font-semibold text-primary mb-1 absolute -top-4 left-0">{msg.sender}</p>
+                        )}
+                        <div className={`p-2 rounded-lg ${msg.isMine ? 'bg-white/20' : 'bg-purple-100'}`}>
+                          <Icon name="FileText" size={24} className={msg.isMine ? 'text-white' : 'text-primary'} />
+                        </div>
+                        <div className="flex-1">
+                          <p className={`text-sm font-medium ${msg.isMine ? 'text-white' : 'text-foreground'}`}>
+                            {msg.fileName}
+                          </p>
+                          <p className={`text-xs ${msg.isMine ? 'text-white/70' : 'text-muted-foreground'}`}>
+                            {msg.fileSize}
+                          </p>
+                        </div>
+                        <Button 
+                          size="icon" 
+                          variant="ghost" 
+                          className={`h-8 w-8 ${msg.isMine ? 'text-white hover:bg-white/20' : 'hover:bg-purple-100'}`}
+                        >
+                          <Icon name="Download" size={16} />
+                        </Button>
+                      </div>
+                    ) : (
+                      <p className={msg.isMine ? 'text-white' : 'text-foreground'}>{msg.text}</p>
+                    )}
+                    
+                    {msg.type === 'text' && (
+                      <p className={`text-xs mt-1 ${msg.isMine ? 'text-white/70' : 'text-muted-foreground'}`}>
+                        {msg.time}
+                      </p>
+                    )}
                   </div>
                 </div>
               ))}
             </div>
 
             <div className="p-4 border-t border-border bg-white/80 backdrop-blur-sm">
-              <div className="flex gap-2">
-                <Button size="icon" variant="ghost" className="shrink-0">
-                  <Icon name="Paperclip" size={20} />
-                </Button>
-                <Input
-                  placeholder="Напишите сообщение..."
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-                  className="flex-1"
-                />
-                <Button size="icon" variant="ghost" className="shrink-0">
-                  <Icon name="Smile" size={20} />
-                </Button>
-                <Button 
-                  size="icon" 
-                  className="shrink-0 bg-gradient-accent hover:opacity-90"
-                  onClick={sendMessage}
-                >
-                  <Icon name="Send" size={20} />
-                </Button>
-              </div>
+              {isRecording ? (
+                <div className="flex items-center gap-3 bg-red-50 rounded-2xl p-4 animate-fade-in">
+                  <div className="h-3 w-3 bg-red-500 rounded-full animate-pulse" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-foreground">Идёт запись...</p>
+                    <p className="text-xs text-muted-foreground">0:{recordingTime.toString().padStart(2, '0')}</p>
+                  </div>
+                  <Button 
+                    size="icon" 
+                    className="shrink-0 bg-red-500 hover:bg-red-600"
+                    onClick={stopRecording}
+                  >
+                    <Icon name="StopCircle" size={20} />
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <input 
+                    type="file" 
+                    ref={fileInputRef} 
+                    onChange={handleFileSelect} 
+                    className="hidden" 
+                  />
+                  <Button 
+                    size="icon" 
+                    variant="ghost" 
+                    className="shrink-0"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Icon name="Paperclip" size={20} />
+                  </Button>
+                  <Input
+                    placeholder="Напишите сообщение..."
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+                    className="flex-1"
+                  />
+                  <Button size="icon" variant="ghost" className="shrink-0">
+                    <Icon name="Smile" size={20} />
+                  </Button>
+                  <Button 
+                    size="icon" 
+                    variant="ghost" 
+                    className="shrink-0"
+                    onClick={startRecording}
+                  >
+                    <Icon name="Mic" size={20} />
+                  </Button>
+                  <Button 
+                    size="icon" 
+                    className="shrink-0 bg-gradient-accent hover:opacity-90"
+                    onClick={sendMessage}
+                  >
+                    <Icon name="Send" size={20} />
+                  </Button>
+                </div>
+              )}
             </div>
           </>
         ) : (
