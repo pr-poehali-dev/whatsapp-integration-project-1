@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Label } from '@/components/ui/label';
 
 interface Message {
@@ -16,6 +17,7 @@ interface Message {
   fileName?: string;
   fileSize?: string;
   duration?: string;
+  isEdited?: boolean;
 }
 
 interface Chat {
@@ -35,6 +37,8 @@ const Index = () => {
   const [groupMembers, setGroupMembers] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
+  const [editingMessageId, setEditingMessageId] = useState<number | null>(null);
+  const [editingText, setEditingText] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -61,11 +65,40 @@ const Index = () => {
         text: message,
         sender: 'Я',
         time: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
-        isMine: true
+        isMine: true,
+        type: 'text'
       };
       setMessages([...messages, newMessage]);
       setMessage('');
     }
+  };
+
+  const startEditMessage = (msg: Message) => {
+    if (msg.type === 'text' && msg.text) {
+      setEditingMessageId(msg.id);
+      setEditingText(msg.text);
+    }
+  };
+
+  const saveEditMessage = () => {
+    if (editingText.trim() && editingMessageId) {
+      setMessages(messages.map(msg => 
+        msg.id === editingMessageId 
+          ? { ...msg, text: editingText, isEdited: true }
+          : msg
+      ));
+      setEditingMessageId(null);
+      setEditingText('');
+    }
+  };
+
+  const cancelEdit = () => {
+    setEditingMessageId(null);
+    setEditingText('');
+  };
+
+  const deleteMessage = (messageId: number) => {
+    setMessages(messages.filter(msg => msg.id !== messageId));
   };
 
   const createGroup = () => {
@@ -248,15 +281,41 @@ const Index = () => {
               {messages.map((msg) => (
                 <div
                   key={msg.id}
-                  className={`flex ${msg.isMine ? 'justify-end' : 'justify-start'} animate-fade-in`}
+                  className={`flex ${msg.isMine ? 'justify-end' : 'justify-start'} animate-fade-in group`}
                 >
-                  <div
-                    className={`max-w-[70%] rounded-2xl px-4 py-2 ${
-                      msg.isMine
-                        ? 'bg-gradient-primary text-white'
-                        : 'bg-white border border-border'
-                    }`}
-                  >
+                  <div className="flex items-start gap-2 max-w-[70%]">
+                    {msg.isMine && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button 
+                            size="icon" 
+                            variant="ghost" 
+                            className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <Icon name="MoreVertical" size={16} />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {msg.type === 'text' && (
+                            <DropdownMenuItem onClick={() => startEditMessage(msg)}>
+                              <Icon name="Edit" size={16} className="mr-2" />
+                              Редактировать
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem onClick={() => deleteMessage(msg.id)} className="text-red-600">
+                            <Icon name="Trash2" size={16} className="mr-2" />
+                            Удалить
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                    <div
+                      className={`rounded-2xl px-4 py-2 ${
+                        msg.isMine
+                          ? 'bg-gradient-primary text-white'
+                          : 'bg-white border border-border'
+                      }`}
+                    >
                     {!msg.isMine && msg.type === 'text' && (
                       <p className="text-xs font-semibold mb-1 text-primary">{msg.sender}</p>
                     )}
@@ -307,7 +366,14 @@ const Index = () => {
                         </Button>
                       </div>
                     ) : (
-                      <p className={msg.isMine ? 'text-white' : 'text-foreground'}>{msg.text}</p>
+                      <div>
+                        <p className={msg.isMine ? 'text-white' : 'text-foreground'}>{msg.text}</p>
+                        {msg.isEdited && (
+                          <p className={`text-xs italic mt-1 ${msg.isMine ? 'text-white/60' : 'text-muted-foreground'}`}>
+                            изменено
+                          </p>
+                        )}
+                      </div>
                     )}
                     
                     {msg.type === 'text' && (
@@ -315,13 +381,41 @@ const Index = () => {
                         {msg.time}
                       </p>
                     )}
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
 
             <div className="p-4 border-t border-border bg-white/80 backdrop-blur-sm">
-              {isRecording ? (
+              {editingMessageId ? (
+                <div className="flex items-center gap-2 bg-blue-50 rounded-2xl p-4 animate-fade-in">
+                  <div className="flex-1">
+                    <p className="text-xs text-muted-foreground mb-2">Редактирование сообщения</p>
+                    <Input
+                      value={editingText}
+                      onChange={(e) => setEditingText(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && saveEditMessage()}
+                      className="bg-white"
+                      autoFocus
+                    />
+                  </div>
+                  <Button 
+                    size="icon" 
+                    variant="ghost" 
+                    onClick={cancelEdit}
+                  >
+                    <Icon name="X" size={20} />
+                  </Button>
+                  <Button 
+                    size="icon" 
+                    className="bg-gradient-accent"
+                    onClick={saveEditMessage}
+                  >
+                    <Icon name="Check" size={20} />
+                  </Button>
+                </div>
+              ) : isRecording ? (
                 <div className="flex items-center gap-3 bg-red-50 rounded-2xl p-4 animate-fade-in">
                   <div className="h-3 w-3 bg-red-500 rounded-full animate-pulse" />
                   <div className="flex-1">
